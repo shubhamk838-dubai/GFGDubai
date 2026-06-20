@@ -387,6 +387,7 @@
             transition: background 0.2s;
         }
         .ai-gen-btn:hover { background-color: #8f1515; }
+        .ai-gen-btn:disabled { background-color: var(--text-muted); cursor: not-allowed; }
 
         /* Mermaid Graph specific */
         #mermaid-output {
@@ -705,8 +706,8 @@
                     <div class="tts-controls">
                         <select id="tts-lang-select" class="tts-select" title="Language"></select>
                         <select id="tts-voice-select" class="tts-select" title="Voice"></select>
-                        <button id="read-page-btn" title="Read current page aloud" style="color: var(--brand-red); font-weight: bold;">🔊 Read Page</button>
-                        <button id="stop-tts-btn" title="Stop Reading" style="display: none; color: var(--brand-red);">⏹️ Stop</button>
+                        <button id="read-page-btn" title="Read current page aloud" style="color: var(--brand-red); font-weight: bold; background: none; border: none; cursor: pointer;">🔊 Read Page</button>
+                        <button id="stop-tts-btn" title="Stop Reading" style="display: none; color: var(--brand-red); background: none; border: none; cursor: pointer; font-weight: bold;">⏹️ Stop</button>
                     </div>
                     
                     <button id="prev-page" disabled>&lt;</button>
@@ -1063,7 +1064,9 @@
                         data: base64String, 
                         buffer: arrayBuffer,
                         graphData: null, // Cache for graph
-                        deckData: null   // Cache for slides
+                        deckData: null,   // Cache for slides
+                        isGeneratingGraph: false, // Background tracking
+                        isGeneratingDeck: false   // Background tracking
                     };
 
                     updateDocList();
@@ -1126,11 +1129,13 @@
 
             document.getElementById('pdf-pagination').style.display = tabId === 'paper' ? 'flex' : 'none';
 
-            // State Management for AI Views
+            // State Management for AI Views (restores background loading states)
             if (tabId === 'graph') {
                 if (documents[currentDocId].graphData) {
                     showGraphState('result');
                     renderMermaid(documents[currentDocId].graphData);
+                } else if (documents[currentDocId].isGeneratingGraph) {
+                    showGraphState('loading');
                 } else {
                     showGraphState('setup');
                 }
@@ -1139,6 +1144,8 @@
                     showDeckState('result');
                     activeSlides = documents[currentDocId].deckData;
                     renderSlide(0);
+                } else if (documents[currentDocId].isGeneratingDeck) {
+                    showDeckState('loading');
                 } else {
                     showDeckState('setup');
                 }
@@ -1156,7 +1163,9 @@
             const apiKey = document.getElementById('api-key').value.trim();
             if (!apiKey) { alert("Please connect your Gemini API key first."); return; }
             
-            showGraphState('loading');
+            const activeDocId = currentDocId; // Bind to local scope for background persistence
+            documents[activeDocId].isGeneratingGraph = true;
+            if (currentDocId === activeDocId) showGraphState('loading');
             
             const prompt = `Analyze this document and extract the core concepts, topics, and methodologies. 
             Create a detailed Knowledge Graph showing how these topics are related, similar to the structural flow of a BPMN diagram.
@@ -1167,14 +1176,23 @@
             Do NOT include markdown formatting (like \`\`\`mermaid). Output ONLY the raw diagram code. Do not include parentheses or quotes inside the node brackets.`;
 
             try {
-                const response = await callGeminiAPI(apiKey, prompt, documents[currentDocId].data);
+                const response = await callGeminiAPI(apiKey, prompt, documents[activeDocId].data);
                 let cleanMermaid = response.replace(/```mermaid\n?/g, '').replace(/```\n?/g, '').trim();
-                documents[currentDocId].graphData = cleanMermaid;
-                showGraphState('result');
-                renderMermaid(cleanMermaid);
+                
+                documents[activeDocId].graphData = cleanMermaid;
+                documents[activeDocId].isGeneratingGraph = false;
+
+                // Only render if the user is currently looking at this specific document
+                if (currentDocId === activeDocId) {
+                    showGraphState('result');
+                    renderMermaid(cleanMermaid);
+                }
             } catch (error) {
-                alert("Failed to generate graph: " + error.message);
-                showGraphState('setup');
+                documents[activeDocId].isGeneratingGraph = false;
+                if (currentDocId === activeDocId) {
+                    alert("Failed to generate graph: " + error.message);
+                    showGraphState('setup');
+                }
             }
         }
 
@@ -1208,7 +1226,9 @@
                 styleInstructions = "Provide a balanced mix of concise bullet points alongside suggestions for visual aids and pictures.";
             }
 
-            showDeckState('loading');
+            const activeDocId = currentDocId; // Bind to local scope for background persistence
+            documents[activeDocId].isGeneratingDeck = true;
+            if (currentDocId === activeDocId) showDeckState('loading');
             
             const prompt = `You are presenting this paper at a conference. Generate a 5-slide presentation summarizing the paper. 
             Style Instructions: ${styleInstructions}
@@ -1217,17 +1237,24 @@
             Do NOT include markdown wrapping. Return ONLY the valid JSON array.`;
 
             try {
-                const response = await callGeminiAPI(apiKey, prompt, documents[currentDocId].data);
+                const response = await callGeminiAPI(apiKey, prompt, documents[activeDocId].data);
                 let cleanJson = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
                 const slideData = JSON.parse(cleanJson);
                 
-                documents[currentDocId].deckData = slideData;
-                activeSlides = slideData;
-                showDeckState('result');
-                renderSlide(0);
+                documents[activeDocId].deckData = slideData;
+                documents[activeDocId].isGeneratingDeck = false;
+                
+                if (currentDocId === activeDocId) {
+                    activeSlides = slideData;
+                    showDeckState('result');
+                    renderSlide(0);
+                }
             } catch (error) {
-                alert("Failed to generate slides: " + error.message);
-                showDeckState('setup');
+                documents[activeDocId].isGeneratingDeck = false;
+                if (currentDocId === activeDocId) {
+                    alert("Failed to generate slides: " + error.message);
+                    showDeckState('setup');
+                }
             }
         }
 
