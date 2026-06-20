@@ -556,6 +556,26 @@
             gap: 10px;
             background: var(--bg-panel);
         }
+        .chat-input-area textarea {
+            flex: 1;
+            resize: none;
+            padding: 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-family: inherit;
+            background: var(--bg-main);
+            color: var(--text-main);
+        }
+        .chat-input-area button {
+            align-self: flex-end;
+            padding: 8px 20px;
+            background: var(--brand-red);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+        }
         .chat-input-area button:hover { opacity: 0.9; }
         
         /* TTS Control Styles */
@@ -867,7 +887,7 @@
         }
         document.getElementById('tts-lang-select').addEventListener('change', updateVoiceList);
 
-        // Unified speech execution
+        // Core speech execution
         function speakText(text) {
             window.speechSynthesis.cancel(); // Stop current speech
             
@@ -884,14 +904,64 @@
 
             // Manage UI state for Stop button
             document.getElementById('stop-tts-btn').style.display = 'inline-block';
+            document.getElementById('stop-tts-btn').innerText = '⏹️ Stop';
             document.getElementById('read-page-btn').style.display = 'none';
             
             utterance.onend = () => {
                 document.getElementById('stop-tts-btn').style.display = 'none';
                 document.getElementById('read-page-btn').style.display = 'inline-block';
             };
+
+            utterance.onerror = () => {
+                document.getElementById('stop-tts-btn').style.display = 'none';
+                document.getElementById('read-page-btn').style.display = 'inline-block';
+            };
             
             window.speechSynthesis.speak(utterance);
+        }
+
+        // Wrapper to Handle On-the-fly Gemini Translation before Speaking
+        async function dictateText(text) {
+            window.speechSynthesis.cancel();
+            const langSelect = document.getElementById('tts-lang-select');
+            const targetLangCode = langSelect.value || 'en';
+            const targetLangName = langSelect.options[langSelect.selectedIndex]?.text || targetLangCode;
+            let finalOutput = text;
+            const apiKey = document.getElementById('api-key').value.trim();
+
+            // If the user wants to dictate in a language other than English, we use Gemini to translate it first
+            if (!targetLangCode.startsWith('en')) {
+                if (!apiKey) {
+                    alert("Please connect your Gemini API key in the top right to translate text for foreign language dictation.");
+                    return;
+                }
+                
+                document.getElementById('stop-tts-btn').style.display = 'inline-block';
+                document.getElementById('stop-tts-btn').innerText = '⏳ Translating...';
+                document.getElementById('read-page-btn').style.display = 'none';
+
+                try {
+                    const prompt = `Translate the following text to ${targetLangName} accurately so it can be read out loud naturally. Return ONLY the translation, no conversational filler:\n\n${text}`;
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                    });
+                    const data = await response.json();
+                    if (data.candidates && data.candidates[0]) {
+                        finalOutput = data.candidates[0].content.parts[0].text;
+                    } else if (data.error) {
+                        console.error("API Error during translation", data.error);
+                        alert("Translation API Error: " + data.error.message);
+                        document.getElementById('stop-tts-btn').style.display = 'none';
+                        document.getElementById('read-page-btn').style.display = 'inline-block';
+                        return;
+                    }
+                } catch(e) {
+                    console.error("Translation failed", e);
+                }
+            }
+
+            speakText(finalOutput);
         }
 
         // Stop Button Logic
@@ -915,7 +985,7 @@
                 menu.style.display = 'flex';
 
                 document.getElementById('menu-tts-btn').onclick = function() {
-                    speakText(text);
+                    dictateText(text); // Pass through our smart translation wrapper
                     menu.style.display = 'none';
                     selection.removeAllRanges();
                 };
@@ -947,7 +1017,7 @@
             const textItems = textContent.items.map(item => item.str).join(' ');
             
             if (textItems.trim() !== '') {
-                speakText(textItems);
+                dictateText(textItems);
             } else {
                 alert("No readable text found on this page.");
             }
@@ -1094,7 +1164,7 @@
             You MUST use boxed nodes with labels for topics, and explicit directional arrows with relationship text.
             Example format:
             A[Machine Learning Model] -->|trained on| B[Dataset XYZ]
-            Do NOT include markdown formatting (like \`\`\`mermaid). Output ONLY the raw diagram code.`;
+            Do NOT include markdown formatting (like \`\`\`mermaid). Output ONLY the raw diagram code. Do not include parentheses or quotes inside the node brackets.`;
 
             try {
                 const response = await callGeminiAPI(apiKey, prompt, documents[currentDocId].data);
@@ -1267,7 +1337,7 @@
                     ]
                 }]
             };
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
             });
             const data = await response.json();
@@ -1320,7 +1390,7 @@
                     systemInstruction: { parts: [{ text: "You are ArxivLLM, an expert academic assistant. Use specific page citations (e.g. [Page 2]) when referencing the uploaded document." }] }
                 };
 
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
                 });
                 
