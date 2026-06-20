@@ -8,6 +8,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
     <!-- Load Mermaid.js for Knowledge Graphs -->
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+    <!-- Load PptxGenJS for PowerPoint export -->
+    <script src="https://cdn.jsdelivr.net/gh/gitbrent/PptxGenJS/3.12.0/dist/pptxgen.bundle.js"></script>
     <style>
         :root {
             /* Light Theme Variables */
@@ -397,6 +399,24 @@
         }
 
         /* Beamer Slide specific */
+        .deck-setup-controls {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .deck-style-select {
+            padding: 8px 12px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-main);
+            color: var(--text-main);
+            font-size: 1rem;
+            cursor: pointer;
+        }
+
         .beamer-slide {
             width: 800px;
             height: 450px;
@@ -424,12 +444,27 @@
             flex: 1;
             font-size: 1.1rem;
             line-height: 1.6;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
         }
         .beamer-body ul {
             padding-left: 20px;
+            margin: 0;
         }
         .beamer-body li {
             margin-bottom: 12px;
+        }
+        .visual-placeholder {
+            background-color: rgba(0, 136, 204, 0.1);
+            border: 2px dashed #0088cc;
+            color: #0088cc;
+            padding: 20px;
+            text-align: center;
+            border-radius: 8px;
+            font-style: italic;
+            font-size: 0.95rem;
+            margin-top: auto;
         }
         .beamer-footer {
             background-color: #f4f4f4;
@@ -452,6 +487,12 @@
             background: var(--bg-panel);
             color: var(--text-main);
             border-radius: 4px;
+        }
+        .slide-controls button.btn-primary {
+            background: var(--success-green);
+            color: var(--success-text);
+            border-color: var(--success-green);
+            font-weight: bold;
         }
 
         /* Chat Panel */
@@ -515,29 +556,76 @@
             gap: 10px;
             background: var(--bg-panel);
         }
-        .chat-input-area textarea {
-            flex: 1;
-            resize: none;
-            padding: 12px;
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            font-family: inherit;
-            background: var(--bg-main);
-            color: var(--text-main);
+        .chat-input-area button:hover { opacity: 0.9; }
+        
+        /* TTS Control Styles */
+        .tts-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-right: 15px;
+            padding-right: 15px;
+            border-right: 1px solid var(--border-color);
         }
-        .chat-input-area button {
-            align-self: flex-end;
-            padding: 8px 20px;
-            background: var(--brand-red);
-            color: white;
-            border: none;
+        .tts-select {
+            padding: 4px 6px;
             border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-panel);
+            color: var(--text-main);
+            font-size: 0.8rem;
+            max-width: 100px;
             cursor: pointer;
-            font-weight: 500;
         }
+
+        /* Floating Selection Menu */
+        .floating-menu {
+            display: none;
+            position: absolute;
+            z-index: 9999;
+            background-color: white;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            border: 1px solid var(--border-color);
+            overflow: hidden;
+            animation: fadeIn 0.2s;
+        }
+        .floating-menu button {
+            background: none;
+            border: none;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        body.dark-mode .floating-menu {
+            background-color: #2a2a2a;
+            border-color: #444;
+        }
+        body.dark-mode .floating-menu button {
+            color: #e0e0e0;
+        }
+        .floating-menu button:hover {
+            background-color: var(--bg-hover);
+        }
+        .floating-menu button:first-child {
+            border-right: 1px solid var(--border-color);
+        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
     </style>
 </head>
 <body>
+
+    <!-- Floating Text Selection Menu -->
+    <div id="selection-menu" class="floating-menu">
+        <button id="menu-tts-btn">🔊 Read Aloud</button>
+        <button id="menu-ask-btn">✨ Ask Gemini</button>
+    </div>
 
     <!-- Header -->
     <header>
@@ -593,6 +681,14 @@
                 </div>
                 <!-- Pagination (Only visible in Paper View) -->
                 <div class="pagination-controls" id="pdf-pagination">
+                    <!-- Text-to-Speech Controls -->
+                    <div class="tts-controls">
+                        <select id="tts-lang-select" class="tts-select" title="Language"></select>
+                        <select id="tts-voice-select" class="tts-select" title="Voice"></select>
+                        <button id="read-page-btn" title="Read current page aloud" style="color: var(--brand-red); font-weight: bold;">🔊 Read Page</button>
+                        <button id="stop-tts-btn" title="Stop Reading" style="display: none; color: var(--brand-red);">⏹️ Stop</button>
+                    </div>
+                    
                     <button id="prev-page" disabled>&lt;</button>
                     <span>Pg <span id="page-num">0</span> / <span id="page-count">0</span></span>
                     <button id="next-page" disabled>&gt;</button>
@@ -619,12 +715,12 @@
             <div id="view-graph" class="content-container">
                 <div id="graph-setup" class="ai-gen-prompt">
                     <h2>Knowledge Graph Engine</h2>
-                    <p>Map the core concepts, entities, and methodologies of this paper.</p>
-                    <button class="ai-gen-btn" onclick="generateGraph()">Generate Graph via Gemini</button>
+                    <p>Map the core concepts, topics, and methodologies of this paper into a relational structural diagram (similar to BPMN format).</p>
+                    <button class="ai-gen-btn" onclick="generateGraph()">Generate Structure via Gemini</button>
                 </div>
                 <div id="graph-loading" class="ai-gen-prompt" style="display: none;">
                     <h2>🤖 Analyzing Document...</h2>
-                    <p>Extracting relationships and building network mapping.</p>
+                    <p>Extracting topics and mapping structured relationships.</p>
                 </div>
                 <div id="graph-result" style="display: none; width: 100%; height: 100%;">
                     <div id="mermaid-output" class="mermaid"></div>
@@ -635,12 +731,20 @@
             <div id="view-deck" class="content-container">
                 <div id="deck-setup" class="ai-gen-prompt">
                     <h2>Beamer Presentation Generator</h2>
-                    <p>Synthesize this paper into a 5-slide academic presentation.</p>
-                    <button class="ai-gen-btn" onclick="generateDeck()">Generate Deck via Gemini</button>
+                    <p>Synthesize this paper into an academic presentation.</p>
+                    
+                    <div class="deck-setup-controls">
+                        <select id="deck-style" class="deck-style-select">
+                            <option value="detailed">Style: Detailed Text-Based Slides</option>
+                            <option value="visual">Style: Visual / Picture-Focused</option>
+                            <option value="mixed">Style: Mixed (Text & Visuals)</option>
+                        </select>
+                        <button class="ai-gen-btn" onclick="generateDeck()" style="margin-top: 0;">Generate Deck via Gemini</button>
+                    </div>
                 </div>
                 <div id="deck-loading" class="ai-gen-prompt" style="display: none;">
                     <h2>🤖 Drafting Presentation...</h2>
-                    <p>Compiling abstract, methodology, and results into slides.</p>
+                    <p>Compiling content, generating slide layouts, and drafting visual suggestions.</p>
                 </div>
                 <div id="deck-result" style="display: none; flex-direction: column; align-items: center;">
                     <div class="beamer-slide" id="beamer-display">
@@ -650,6 +754,7 @@
                         <button onclick="prevSlide()">← Previous Slide</button>
                         <span id="slide-counter" style="align-self: center; font-weight: bold; color: var(--text-muted);">1 / 5</span>
                         <button onclick="nextSlide()">Next Slide →</button>
+                        <button class="btn-primary" onclick="downloadPPT()">💾 Download .pptx</button>
                     </div>
                 </div>
             </div>
@@ -663,7 +768,7 @@
             </div>
             <div class="chat-history" id="chat-history">
                 <div class="message ai">
-                    Welcome to <strong>ArxivLLM</strong>. Upload research papers to begin analysis. Try clicking the Knowledge Graph or Beamer Deck tabs for automated AI synthesis.
+                    Welcome to <strong>ArxivLLM</strong>. Upload research papers to begin analysis. Try highlighting any text on the screen to use the Dictation feature!
                 </div>
             </div>
             <div class="chat-input-area">
@@ -709,6 +814,145 @@
         // Slide State
         let currentSlideIndex = 0;
         let activeSlides = [];
+
+        // --- Text-to-Speech (Dictation) Logic ---
+        let availableVoices = [];
+
+        function populateVoices() {
+            availableVoices = window.speechSynthesis.getVoices();
+            if(availableVoices.length === 0) return;
+
+            const langSelect = document.getElementById('tts-lang-select');
+            
+            // Extract unique languages (e.g., 'en', 'fr', 'es')
+            const langs = [...new Set(availableVoices.map(v => v.lang.split('-')[0]))].sort();
+            const currentLang = langSelect.value || navigator.language.split('-')[0] || 'en';
+            
+            langSelect.innerHTML = '';
+            langs.forEach(lang => {
+                const option = document.createElement('option');
+                option.value = lang;
+                option.textContent = lang.toUpperCase();
+                if(lang === currentLang) option.selected = true;
+                langSelect.appendChild(option);
+            });
+
+            updateVoiceList();
+        }
+
+        function updateVoiceList() {
+            const langSelect = document.getElementById('tts-lang-select');
+            const voiceSelect = document.getElementById('tts-voice-select');
+            const selectedLang = langSelect.value;
+
+            voiceSelect.innerHTML = '';
+            // Filter voices by selected language prefix
+            const filteredVoices = availableVoices.filter(v => v.lang.startsWith(selectedLang));
+            
+            filteredVoices.forEach(voice => {
+                const option = document.createElement('option');
+                option.value = voice.name;
+                // Simplify name for UI
+                let label = voice.name.replace(/Microsoft |Google /g, '');
+                if (label.length > 20) label = label.substring(0, 17) + '...';
+                option.textContent = label;
+                voiceSelect.appendChild(option);
+            });
+        }
+
+        // Initialize voices when they load (browsers load them asynchronously)
+        populateVoices();
+        if (speechSynthesis.onvoiceschanged !== undefined) {
+            speechSynthesis.onvoiceschanged = populateVoices;
+        }
+        document.getElementById('tts-lang-select').addEventListener('change', updateVoiceList);
+
+        // Unified speech execution
+        function speakText(text) {
+            window.speechSynthesis.cancel(); // Stop current speech
+            
+            const utterance = new SpeechSynthesisUtterance(text);
+            const selectedVoiceName = document.getElementById('tts-voice-select').value;
+            
+            if (selectedVoiceName) {
+                const voice = availableVoices.find(v => v.name === selectedVoiceName);
+                if (voice) {
+                    utterance.voice = voice;
+                    utterance.lang = voice.lang;
+                }
+            }
+
+            // Manage UI state for Stop button
+            document.getElementById('stop-tts-btn').style.display = 'inline-block';
+            document.getElementById('read-page-btn').style.display = 'none';
+            
+            utterance.onend = () => {
+                document.getElementById('stop-tts-btn').style.display = 'none';
+                document.getElementById('read-page-btn').style.display = 'inline-block';
+            };
+            
+            window.speechSynthesis.speak(utterance);
+        }
+
+        // Stop Button Logic
+        document.getElementById('stop-tts-btn').addEventListener('click', () => {
+            window.speechSynthesis.cancel();
+            document.getElementById('stop-tts-btn').style.display = 'none';
+            document.getElementById('read-page-btn').style.display = 'inline-block';
+        });
+
+        // Highlight Trigger (Read & Ask Gemini)
+        document.addEventListener('mouseup', function(e) {
+            const menu = document.getElementById('selection-menu');
+            if (e.target.closest('#selection-menu') || e.target.closest('.tts-controls')) return;
+
+            const selection = window.getSelection();
+            const text = selection.toString().trim();
+
+            if (text.length > 0) {
+                menu.style.left = `${e.pageX + 10}px`;
+                menu.style.top = `${e.pageY + 10}px`;
+                menu.style.display = 'flex';
+
+                document.getElementById('menu-tts-btn').onclick = function() {
+                    speakText(text);
+                    menu.style.display = 'none';
+                    selection.removeAllRanges();
+                };
+
+                document.getElementById('menu-ask-btn').onclick = function() {
+                    sendQuickAction("Explain the following excerpt in detail:\n\n\"" + text + "\"");
+                    menu.style.display = 'none';
+                    selection.removeAllRanges();
+                };
+            } else {
+                menu.style.display = 'none';
+            }
+        });
+
+        // Hide menu when clicking away
+        document.addEventListener('mousedown', function(e) {
+            if (!e.target.closest('#selection-menu')) {
+                document.getElementById('selection-menu').style.display = 'none';
+            }
+        });
+
+        // Fallback Dictation for PDF Canvas (since canvas isn't highlightable natively)
+        document.getElementById('read-page-btn').addEventListener('click', async () => {
+            if (!pdfDoc) return;
+            
+            // Extract text from the current PDF page
+            const page = await pdfDoc.getPage(pageNum);
+            const textContent = await page.getTextContent();
+            const textItems = textContent.items.map(item => item.str).join(' ');
+            
+            if (textItems.trim() !== '') {
+                speakText(textItems);
+            } else {
+                alert("No readable text found on this page.");
+            }
+        });
+
 
         // --- UI Setup ---
         document.getElementById('pdf-upload').addEventListener('change', handleFileUpload);
@@ -778,6 +1022,7 @@
         function selectDocument(id) {
             if (!documents[id]) return;
             currentDocId = id;
+            window.speechSynthesis.cancel(); // Stop dictation if changing docs
             updateDocList();
             
             // PDF Reset
@@ -843,8 +1088,12 @@
             
             showGraphState('loading');
             
-            const prompt = `Analyze this document and extract the top 12 core concepts, entities, or methodologies and their relationships. 
-            Output the result strictly as a valid Mermaid.js diagram using 'graph TD'. 
+            const prompt = `Analyze this document and extract the core concepts, topics, and methodologies. 
+            Create a detailed Knowledge Graph showing how these topics are related, similar to the structural flow of a BPMN diagram.
+            Output strictly as a valid Mermaid.js diagram using 'graph TD'. 
+            You MUST use boxed nodes with labels for topics, and explicit directional arrows with relationship text.
+            Example format:
+            A[Machine Learning Model] -->|trained on| B[Dataset XYZ]
             Do NOT include markdown formatting (like \`\`\`mermaid). Output ONLY the raw diagram code.`;
 
             try {
@@ -881,12 +1130,21 @@
             const apiKey = document.getElementById('api-key').value.trim();
             if (!apiKey) { alert("Please connect your Gemini API key first."); return; }
             
+            const selectedStyle = document.getElementById('deck-style').value;
+            let styleInstructions = "Focus strictly on comprehensive, detailed text and bullet points.";
+            if (selectedStyle === 'visual') {
+                styleInstructions = "Minimize text greatly. Focus on brief concepts and strong suggestions for visual imagery, diagrams, or picture placements for each slide.";
+            } else if (selectedStyle === 'mixed') {
+                styleInstructions = "Provide a balanced mix of concise bullet points alongside suggestions for visual aids and pictures.";
+            }
+
             showDeckState('loading');
             
-            const prompt = `You are presenting this paper at a conference. Generate a 5-slide presentation summarizing the paper.
-            Return a valid JSON array of 5 objects. Each object must have a 'title' (string) and 'bullets' (array of 3-4 string sentences).
-            Example: [{"title": "Introduction", "bullets": ["Point 1", "Point 2"]}]
-            Do NOT include markdown wrapping. Return ONLY the JSON array.`;
+            const prompt = `You are presenting this paper at a conference. Generate a 5-slide presentation summarizing the paper. 
+            Style Instructions: ${styleInstructions}
+            Return a valid JSON array of 5 objects. Each object must have a 'title' (string), 'bullets' (array of 1-4 string sentences), and an optional 'visualSuggestion' (a brief string describing a picture or diagram to include, if applicable to the style).
+            Example: [{"title": "Introduction", "bullets": ["Point 1"], "visualSuggestion": "A diagram showing neural networks"}]
+            Do NOT include markdown wrapping. Return ONLY the valid JSON array.`;
 
             try {
                 const response = await callGeminiAPI(apiKey, prompt, documents[currentDocId].data);
@@ -909,11 +1167,15 @@
             const slide = activeSlides[index];
             const display = document.getElementById('beamer-display');
             
-            let bulletsHtml = slide.bullets.map(b => `<li>${b}</li>`).join('');
-            
+            let bulletsHtml = slide.bullets.length > 0 ? `<ul>${slide.bullets.map(b => `<li>${b}</li>`).join('')}</ul>` : '';
+            let visualHtml = slide.visualSuggestion ? `<div class="visual-placeholder">🖼️ Suggested Image: ${slide.visualSuggestion}</div>` : '';
+
             display.innerHTML = `
                 <div class="beamer-header">${slide.title}</div>
-                <div class="beamer-body"><ul>${bulletsHtml}</ul></div>
+                <div class="beamer-body">
+                    ${bulletsHtml}
+                    ${visualHtml}
+                </div>
                 <div class="beamer-footer">
                     <span>ArxivLLM Auto-Deck</span>
                     <span>${index + 1} / ${activeSlides.length}</span>
@@ -924,6 +1186,45 @@
 
         function prevSlide() { if (currentSlideIndex > 0) renderSlide(currentSlideIndex - 1); }
         function nextSlide() { if (currentSlideIndex < activeSlides.length - 1) renderSlide(currentSlideIndex + 1); }
+
+        function downloadPPT() {
+            if (!activeSlides || activeSlides.length === 0) return;
+            
+            // Initialize PptxGenJS
+            let pptx = new pptxgen();
+            
+            activeSlides.forEach(slide => {
+                let pptSlide = pptx.addSlide();
+                
+                // Add Title
+                pptSlide.addText(slide.title, { 
+                    x: 0.5, y: 0.5, w: '90%', h: 1, 
+                    fontSize: 24, bold: true, color: '3333b3' 
+                });
+                
+                // Add Bullets
+                if (slide.bullets && slide.bullets.length > 0) {
+                    let bulletText = slide.bullets.map(b => ({ text: b, options: { bullet: true } }));
+                    pptSlide.addText(bulletText, { 
+                        x: 0.5, y: 1.5, w: '90%', h: 2, 
+                        fontSize: 16, color: '363636', align: 'left' 
+                    });
+                }
+                
+                // Add Visual Suggestions if they exist
+                if (slide.visualSuggestion) {
+                    pptSlide.addText("[Suggested Visual: " + slide.visualSuggestion + "]", { 
+                        x: 0.5, y: '80%', w: '90%', h: 0.5, 
+                        fontSize: 14, color: '0088cc', italic: true, align: 'center',
+                        fill: { color: 'e6f2ff' }
+                    });
+                }
+            });
+
+            // Trigger file download
+            let safeName = (documents[currentDocId].name || 'Presentation').replace('.pdf', '');
+            pptx.writeFile({ fileName: `ArxivLLM_${safeName}.pptx` });
+        }
 
 
         // --- Base PDF Render ---
@@ -952,8 +1253,8 @@
             document.getElementById('prev-page').disabled = (num <= 1);
             document.getElementById('next-page').disabled = (num >= pdfDoc.numPages);
         }
-        function onPrevPage() { if (pageNum > 1) { pageNum--; renderPage(pageNum); } }
-        function onNextPage() { if (pageNum < pdfDoc.numPages) { pageNum++; renderPage(pageNum); } }
+        function onPrevPage() { if (pageNum > 1) { pageNum--; renderPage(pageNum); window.speechSynthesis.cancel(); } }
+        function onNextPage() { if (pageNum < pdfDoc.numPages) { pageNum++; renderPage(pageNum); window.speechSynthesis.cancel(); } }
 
 
         // --- Chat & Shared LLM API ---
@@ -966,7 +1267,7 @@
                     ]
                 }]
             };
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
             });
             const data = await response.json();
@@ -1019,7 +1320,7 @@
                     systemInstruction: { parts: [{ text: "You are ArxivLLM, an expert academic assistant. Use specific page citations (e.g. [Page 2]) when referencing the uploaded document." }] }
                 };
 
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
                 });
                 
